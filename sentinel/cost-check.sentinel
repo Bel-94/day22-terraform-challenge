@@ -1,0 +1,11 @@
+# sentinel/cost-check.sentinel
+# Blocks applies where the estimated monthly cost increase exceeds $50.
+# Acts as a financial guardrail — forces a human review before expensive changes land.
+
+import "tfrun"
+
+maximum_monthly_increase = 50.0
+
+main = rule {
+  tfrun.cost_estimate.delta_monthly_cost < maximum_monthly_increase
+}

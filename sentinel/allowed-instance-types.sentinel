@@ -1,0 +1,18 @@
+# sentinel/allowed-instance-types.sentinel
+# Blocks any EC2 instance type not in the approved list across all workspaces.
+# Prevents engineers from accidentally spinning up oversized or unapproved instance families.
+
+import "tfplan/v2" as tfplan
+
+allowed_types = ["t3.micro", "t3.small", "t3.medium", "t3.large"]
+
+ec2_instances = filter tfplan.resource_changes as _, rc {
+  rc.type is "aws_instance" and
+  (rc.change.actions contains "create" or rc.change.actions contains "update")
+}
+
+main = rule {
+  all ec2_instances as _, instance {
+    instance.change.after.instance_type in allowed_types
+  }
+}

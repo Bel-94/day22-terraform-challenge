@@ -1,0 +1,11 @@
+# sentinel/require-terraform-tag.sentinel
+# Blocks any apply where a resource is missing the ManagedBy = "terraform" tag.
+# Ensures every resource is traceable back to IaC — no manually created orphans.
+
+import "tfplan/v2" as tfplan
+
+main = rule {
+  all tfplan.resource_changes as _, rc {
+    rc.change.after.tags["ManagedBy"] is "terraform"
+  }
+}
