@@ -108,7 +108,7 @@ Initialised the workspace with the remote cloud backend, downloading the VPC mod
 
 ### Local Terraform Test
 
-Unit tests run with `terraform test` using mock providers — no AWS credentials required.
+Unit tests run with `terraform test` using mock providers, no AWS credentials required.
 
 ![Local test](images/local-test.png)
 
@@ -150,7 +150,7 @@ All runs executed in the `day22-integrated` workspace in the `Bel_terra_acc` org
 
 - Triggered by: UI (destroy plan)
 - Status: Applied ✅
-- Resources: 29 destroyed — no lingering AWS charges
+- Resources: 29 destroyed, no lingering AWS charges
 
 ![VCS destroy](images/terraform-vcs-destroy.png)
 
@@ -288,7 +288,7 @@ That list is longer than what most engineers build in their first year on the jo
 
 ### What changed in how I think
 
-Before this challenge I thought about infrastructure as a sequence of steps — create this, then attach that. Now I think about infrastructure as a **state machine**. Terraform's job is to reconcile the desired state (code) with the actual state (reality). Every operation is a diff. That mental shift changes how I read error messages, how I design modules, and how I think about rollback — it is never "undo the last command", it is always "apply the previous desired state".
+Before this challenge I thought about infrastructure as a sequence of steps; create this, then attach that. Now I think about infrastructure as a **state machine**. Terraform's job is to reconcile the desired state (code) with the actual state (reality). Every operation is a diff. That mental shift changes how I read error messages, how I design modules, and how I think about rollback — it is never "undo the last command", it is always "apply the previous desired state".
 
 ### What was harder than expected
 
@@ -300,7 +300,15 @@ In week one I would set up the remote backend and CI pipeline on Day 1, before w
 
 ### What comes next
 
-The first real project: migrate a manually managed staging environment at work to Terraform. The VPC, security groups, and EC2 instances already exist — the work is importing them into state, writing the code to match, and then putting the whole thing behind a CI pipeline with Sentinel policies. Day 22 is exactly the blueprint for that.
+The next project is already built and it is the most honest test of everything covered in this challenge.
+
+The `dr-rto-rpo-terraform` project is a production-style disaster recovery lab running across two AWS regions: `us-east-1` as primary and `us-west-2` as the DR region. The stack is a Flask API on ECS Fargate, backed by RDS PostgreSQL, sitting behind an Application Load Balancer all provisioned with Terraform. Four DR strategies were implemented and measured: Backup and Restore (RTO ~30–45 min), Pilot Light (RTO ~15–30 min), Warm Standby (RTO ~2–5 min), and Multi-Site Active/Active (RTO ~30 seconds via Route 53 weighted routing with health checks).
+
+The infrastructure exists. The Terraform code exists. What does not exist yet is the governance layer built this week.
+
+The work is: move the state file from local to Terraform Cloud, add branch protection to the repo, wire up the GitHub Actions CI pipeline so every change to `infra/` goes through fmt, validate, and plan before it can merge, and attach Sentinel policies specifically the `allowed-instance-types` policy to prevent accidental over-provisioning across two regions, and the `require-terraform-tag` policy to enforce the `ManagedBy = "terraform"` tag that is already in the provider `default_tags` block.
+
+Day 22 is exactly the blueprint for that. The difference between Day 22 and the real project is that the real project has history, real failure data, and four DR strategies that were simulated and measured under pressure. Working through the governance layer wiring the existing Terraform code into a CI pipeline, attaching Sentinel policies to a codebase that already manages two regions, two ECS clusters, two RDS instances, and a Route 53 failover configuration is what the next month actually looks like. The architecture is proven. The pipeline is the missing piece.
 
 ---
 
@@ -308,7 +316,7 @@ The first real project: migrate a manually managed staging environment at work t
 
 The single most important insight: **the artifact is the unit of promotion, not the code**.
 
-Most teams run `terraform plan` in staging and then run `terraform plan` again in production. Those are two different plans. If anything changed between the two runs — a new AMI, a dependency update, a race condition — production gets something different from what was reviewed. The correct pattern is to save the plan as a binary artifact in CI, store it immutably, and apply that exact binary in every subsequent environment. The plan is the deployable unit, the same way a Docker image is the deployable unit for application code. That one change makes the entire workflow auditable, reproducible, and safe.
+Most teams run `terraform plan` in staging and then run `terraform plan` again in production. Those are two different plans. If anything changed between the two runs a new AMI, a dependency update, a race condition production gets something different from what was reviewed. The correct pattern is to save the plan as a binary artifact in CI, store it immutably, and apply that exact binary in every subsequent environment. The plan is the deployable unit, the same way a Docker image is the deployable unit for application code. That one change makes the entire workflow auditable, reproducible, and safe.
 
 ---
 
@@ -316,7 +324,7 @@ Most teams run `terraform plan` in staging and then run `terraform plan` again i
 
 **Title:** Putting It All Together: Application and Infrastructure Workflows with Terraform
 
-**URL:** *(paste your published URL here)*
+**URL:** https://medium.com/@ntinyaribelinda/putting-it-all-together-application-and-infrastructure-workflows-with-terraform-ba8c60e0ca74
 
 **Summary:** The post covers the integrated CI pipeline, the immutable plan artifact promotion pattern, the three Sentinel policies (instance types, mandatory tags, cost gate), and a genuine reflection on 22 days of building real infrastructure. The central argument is that application and infrastructure deployment are the same workflow — the only difference is the artifact type — and once you internalise that, every software engineering practice you already know applies directly to infrastructure.
 
@@ -324,6 +332,6 @@ Most teams run `terraform plan` in staging and then run `terraform plan` again i
 
 ## Social Media
 
-**Post:** 🎉 Day 22 of the 30-Day Terraform Challenge — finished the book. Combined application and infrastructure deployment workflows into one integrated pipeline with CI, Sentinel policies, cost gates, and immutable plan promotion across environments. 22 days in and it is just getting interesting. #30DayTerraformChallenge #TerraformChallenge #Terraform #DevOps #IaC #AWSUserGroupKenya #EveOps
+**Post:** Day 22 of the 30-Day Terraform Challenge — finished the book. Combined application and infrastructure deployment workflows into one integrated pipeline with CI, Sentinel policies, cost gates, and immutable plan promotion across environments. 22 days in and it is just getting interesting. #30DayTerraformChallenge #TerraformChallenge #Terraform #DevOps #IaC #AWSUserGroupKenya #EveOps
 
-**URL:** *(paste your post URL here)*
+**URL:** https://www.linkedin.com/posts/belinda-ntinyari_30dayterraformchallenge-terraformchallenge-share-7447934416557010944-RkZB?utm_source=share&utm_medium=member_desktop&rcm=ACoAADIR1hQBmVYLOZmlsp7cjM_JgI4mQHwbRg0
