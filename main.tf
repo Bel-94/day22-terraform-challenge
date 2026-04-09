@@ -8,8 +8,7 @@ terraform {
     }
   }
 
-  # Remote state with locking — Terraform Cloud workspace
-  backend "remote" {
+  cloud {
     organization = "Bel_terra_acc"
     workspaces {
       name = "day22-integrated"

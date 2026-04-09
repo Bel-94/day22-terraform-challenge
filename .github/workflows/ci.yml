@@ -43,10 +43,13 @@ jobs:
         run: terraform init
 
       - name: Plan
-        run: terraform plan -out=ci.tfplan
+        run: terraform plan
 
-      - name: Upload plan
+      - name: Save run URL
+        run: echo "https://app.terraform.io/app/Bel_terra_acc/workspaces/day22-integrated" > run-url.txt
+
+      - name: Upload run URL
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
-          path: ci.tfplan
+          path: run-url.txt
