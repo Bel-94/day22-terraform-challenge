@@ -43,13 +43,18 @@ jobs:
         run: terraform init
 
       - name: Plan
-        run: terraform plan
+        id: plan
+        run: terraform plan -no-color
 
-      - name: Save run URL
-        run: echo "https://app.terraform.io/app/Bel_terra_acc/workspaces/day22-integrated" > run-url.txt
+      - name: Save plan summary
+        run: |
+          echo "Terraform Cloud Run URL:" > plan-summary.txt
+          echo "https://app.terraform.io/app/Bel_terra_acc/workspaces/day22-integrated/runs" >> plan-summary.txt
+          echo "" >> plan-summary.txt
+          echo "Plan executed successfully in CI" >> plan-summary.txt
 
-      - name: Upload run URL
+      - name: Upload plan summary
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
-          path: run-url.txt
+          path: plan-summary.txt
