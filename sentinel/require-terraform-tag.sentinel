@@ -6,11 +6,12 @@ import "tfplan/v2" as tfplan
 
 taggable_resources = filter tfplan.resource_changes as _, rc {
   rc.change.after is not null and
-  rc.change.after.tags is not null
+  rc.change.after.tags else null is not null
 }
 
 main = rule {
   all taggable_resources as _, rc {
+    (rc.change.after.tags else {}) contains "ManagedBy" and
     rc.change.after.tags["ManagedBy"] is "terraform"
   }
 }

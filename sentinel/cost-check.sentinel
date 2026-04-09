@@ -6,6 +6,6 @@ import "tfrun"
 
 maximum_monthly_increase = 50.0
 
-main = rule when tfrun.cost_estimate.delta_monthly_cost is not undefined {
-  tfrun.cost_estimate.delta_monthly_cost < maximum_monthly_increase
+main = rule when tfrun.cost_estimate is not null {
+  float(tfrun.cost_estimate.delta_monthly_cost) < maximum_monthly_increase
 }
