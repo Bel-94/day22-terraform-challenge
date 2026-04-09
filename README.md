@@ -11,6 +11,7 @@ day_22/
 │   └── cost-check.sentinel
 ├── tests/
 │   └── validate.tftest.hcl
+├── images/                            # Screenshots
 ├── main.tf
 ├── variables.tf
 └── outputs.tf
@@ -22,12 +23,136 @@ day_22/
 
 The pipeline runs on every pull request targeting `main`. It is split into two jobs:
 
-- `validate` — format check, init (no backend), validate, unit tests. No AWS credentials needed.
-- `plan` — full init against the remote backend, plan, upload the saved `.tfplan` as an immutable artifact.
+- `validate` — format check, init (no backend), validate, unit tests using mock providers. No AWS credentials needed.
+- `plan` — full init against the Terraform Cloud remote backend, plan, upload the run summary as an artifact.
 
-The saved plan is the artifact that gets promoted. The same binary plan reviewed in staging is the exact one applied in production — it is never regenerated.
+```yaml
+name: Infrastructure CI
 
-**Passing workflow run:** All steps in `validate` complete before `plan` starts (`needs: validate`). The uploaded artifact `terraform-plan` is available for download from the Actions run summary.
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      TF_CLI_ARGS: "-no-color"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Init
+        run: terraform init -backend=false
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Unit tests
+        run: terraform test
+
+  plan:
+    runs-on: ubuntu-latest
+    needs: validate
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Init
+        run: terraform init
+
+      - name: Plan
+        run: terraform plan -no-color
+
+      - name: Upload plan summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: plan-summary.txt
+```
+
+### Passing Workflow Run
+
+All steps in `validate` complete before `plan` starts (`needs: validate`). The CI pipeline passed on the PR from branch `day22-integrated-workflow` into `main`.
+
+![All checks passed](images/all-checks-passed.png)
+
+**GitHub Actions run:**
+`https://github.com/Bel-94/day22-terraform-challenge/actions`
+
+---
+
+## Local Setup
+
+### Terraform Login
+
+Authenticated to Terraform Cloud using `terraform login` before running any commands locally.
+
+![Terraform login](images/terraform-login.png)
+
+### Terraform Init
+
+Initialised the workspace with the remote cloud backend, downloading the VPC module and AWS provider.
+
+![Terraform init](images/terraform-init.png)
+
+### Local Terraform Test
+
+Unit tests run with `terraform test` using mock providers — no AWS credentials required.
+
+![Local test](images/local-test.png)
+
+### Local Terraform Plan
+
+Plan output showing 29 resources to add, streamed from Terraform Cloud back to the local terminal.
+
+![Local plan](images/local-terraform-plan.png)
+
+---
+
+## Terraform Cloud Runs
+
+All runs executed in the `day22-integrated` workspace in the `Bel_terra_acc` organization.
+
+**Workspace URL:**
+`https://app.terraform.io/app/Bel_terra_acc/workspaces/day22-integrated`
+
+### Plan Run (CI triggered via PR)
+`https://app.terraform.io/app/Bel_terra_acc/workspaces/day22-integrated/runs/run-PRvnidoxCnAgCPYt`
+
+- Triggered by: GitHub PR merge to `main`
+- Status: Policy checked ✅
+- Sentinel policies: 3 evaluated, allowed-instance-types passed (hard-mandatory)
+
+![VCS plan output](images/vcs-output.png)
+
+### Apply Run
+`https://app.terraform.io/app/Bel_terra_acc/workspaces/day22-integrated/runs/run-8c1EKgazzeiWjrZX`
+
+- Triggered by: UI (manual confirm)
+- Status: Applied ✅
+- Resources: 29 created
+
+![VCS apply](images/terraform-vcs-apply.png)
+
+### Destroy Run
+`https://app.terraform.io/app/Bel_terra_acc/workspaces/day22-integrated/runs/run-jqomHfKZ7HK9GT4Z`
+
+- Triggered by: UI (destroy plan)
+- Status: Applied ✅
+- Resources: 29 destroyed — no lingering AWS charges
+
+![VCS destroy](images/terraform-vcs-destroy.png)
 
 ---
 
@@ -37,19 +162,72 @@ The saved plan is the artifact that gets promoted. The same binary plan reviewed
 
 Blocks any `aws_instance` resource whose `instance_type` is not in `["t3.micro", "t3.small", "t3.medium", "t3.large"]`.
 
-Why it matters: Without this, a developer can accidentally request a `p4d.24xlarge` in a PR and it will sail through `terraform validate` with no complaint. Sentinel catches it before the apply ever runs, at the policy-enforcement step in Terraform Cloud.
+```python
+import "tfplan/v2" as tfplan
+
+allowed_types = ["t3.micro", "t3.small", "t3.medium", "t3.large"]
+
+ec2_instances = filter tfplan.resource_changes as _, rc {
+  rc.type is "aws_instance" and
+  (rc.change.actions contains "create" or rc.change.actions contains "update")
+}
+
+main = rule {
+  all ec2_instances as _, instance {
+    instance.change.after.instance_type in allowed_types
+  }
+}
+```
+
+**Result: PASS (hard-mandatory)**
+
+Why it matters: Without this, a developer can accidentally request a `p4d.24xlarge` in a PR and it will sail through `terraform validate` with no complaint. Sentinel catches it before the apply ever runs.
+
+---
 
 ### 2. `require-terraform-tag.sentinel`
 
-Blocks any apply where a resource is missing `tags["ManagedBy"] = "terraform"`.
+Blocks any apply where a taggable resource is missing `tags["ManagedBy"] = "terraform"`.
 
-Why it matters: In a shared AWS account, manually created resources are invisible to Terraform. This policy makes the tag mandatory, so every resource in the account can be traced back to a specific workspace and module. It also makes cost allocation and cleanup audits trivial.
+```python
+import "tfplan/v2" as tfplan
 
-### 3. `cost-check.sentinel` (Cost Estimation Gate)
+taggable_resources = filter tfplan.resource_changes as _, rc {
+  rc.change.after is not null and
+  rc.change.after.tags else null is not null
+}
 
-Blocks applies where `delta_monthly_cost >= $50.00`.
+main = rule {
+  all taggable_resources as _, rc {
+    (rc.change.after.tags else {}) contains "ManagedBy" and
+    rc.change.after.tags["ManagedBy"] is "terraform"
+  }
+}
+```
 
-Terraform Cloud shows the estimated monthly cost delta on every run in the "Cost Estimation" section. A run that adds a new NAT gateway (~$32/month) passes. A run that adds an RDS Multi-AZ instance (~$180/month delta) is blocked and requires a policy override with a documented reason.
+**Result: Advisory**
+
+Why it matters: In a shared AWS account, manually created resources are invisible to Terraform. This policy makes the tag mandatory so every resource can be traced back to a specific workspace and module. Cost allocation and cleanup audits become trivial.
+
+---
+
+### 3. `cost-check.sentinel`
+
+Blocks applies where the estimated monthly cost increase exceeds $50.00.
+
+```python
+import "tfrun"
+
+maximum_monthly_increase = 50.0
+
+main = rule when tfrun.cost_estimate is not null {
+  float(tfrun.cost_estimate.delta_monthly_cost) < maximum_monthly_increase
+}
+```
+
+**Result: Advisory**
+
+Why it matters: Acts as a financial guardrail. Forces a human review and documented override before expensive infrastructure changes land in production.
 
 ---
 
@@ -57,12 +235,15 @@ Terraform Cloud shows the estimated monthly cost delta on every run in the "Cost
 
 Threshold: **$50.00 monthly increase per apply**.
 
-In Terraform Cloud, the Cost Estimation tab on a run shows:
-- Previous monthly cost
-- New monthly cost
-- Delta
+| Resource | Monthly Cost |
+|---|---|
+| `aws_autoscaling_group.web` | $29.95 |
+| `aws_lb.web` | $16.20 |
+| **Total delta** | **$46.15/month** |
 
-The `cost-check.sentinel` policy reads `tfrun.cost_estimate.delta_monthly_cost` and soft-fails if it exceeds the threshold, requiring an explicit override from a workspace admin before the apply can proceed.
+The $46.15 delta is **under the $50 threshold** — the cost-check policy passes. Terraform Cloud showed 2 of 9 resources estimated (7 resources such as security groups and S3 have no hourly cost).
+
+![VCS plan with cost estimation](images/terraform-vcs-plan.png)
 
 ---
 
@@ -127,7 +308,7 @@ The first real project: migrate a manually managed staging environment at work t
 
 The single most important insight: **the artifact is the unit of promotion, not the code**.
 
-Most teams run `terraform plan` in staging and then run `terraform plan` again in production. Those are two different plans. If anything changed between the two runs — a new AMI, a dependency update, a race condition — production gets something different from what was reviewed. The correct pattern is to save the plan as a binary artifact in CI, store it immutably (S3, Actions artifact), and apply that exact binary in every subsequent environment. The plan is the deployable unit, the same way a Docker image is the deployable unit for application code. That one change makes the entire workflow auditable, reproducible, and safe.
+Most teams run `terraform plan` in staging and then run `terraform plan` again in production. Those are two different plans. If anything changed between the two runs — a new AMI, a dependency update, a race condition — production gets something different from what was reviewed. The correct pattern is to save the plan as a binary artifact in CI, store it immutably, and apply that exact binary in every subsequent environment. The plan is the deployable unit, the same way a Docker image is the deployable unit for application code. That one change makes the entire workflow auditable, reproducible, and safe.
 
 ---
 
