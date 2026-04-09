@@ -7,9 +7,13 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      TF_CLI_ARGS: "-no-color"
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
       - name: Format check
         run: terraform fmt -check -recursive
@@ -32,15 +36,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
       - name: Init
         run: terraform init
 
       - name: Plan
-        run: terraform plan -out=ci.tfplan
+        run: terraform plan
 
-      - name: Upload plan
+      - name: Save run URL
+        run: echo "https://app.terraform.io/app/Bel_terra_acc/workspaces/day22-integrated" > run-url.txt
+
+      - name: Upload run URL
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
-          path: ci.tfplan
+          path: run-url.txt
