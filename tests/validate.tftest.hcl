@@ -1,9 +1,11 @@
 # tests/validate.tftest.hcl
-# Runs with `terraform test` — validates variable constraints without touching AWS.
+# Uses mock providers — no AWS credentials needed. Safe to run in CI validate job.
+
+mock_provider "aws" {}
 
 variables {
   environment   = "dev"
-  ami_id        = "ami-0abcdef1234567890"
+  ami_id        = "ami-0c456f2cfcc96df82"
   instance_type = "t3.micro"
 }
 
@@ -20,7 +22,7 @@ run "invalid_environment_rejected" {
   command = plan
 
   variables {
-    environment = "production" # not in allowed list — should fail validation
+    environment = "production"
   }
 
   expect_failures = [var.environment]

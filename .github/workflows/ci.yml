@@ -25,7 +25,7 @@ jobs:
         run: terraform validate
 
       - name: Unit tests
-        run: terraform test -var="environment=dev" -var="ami_id=ami-0c456f2cfcc96df82"
+        run: terraform test
 
   plan:
     runs-on: ubuntu-latest
